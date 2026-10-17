@@ -7,3 +7,5 @@ __pycache__/
 .state_*.json
 .vercel/
 node_modules/
+.vercel
+.env*
