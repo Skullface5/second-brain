@@ -1,0 +1,8 @@
+scrapers/
+news/
+venv/
+*.py
+*.jsonl
+.state_*.json
+README.md
+sync.sh

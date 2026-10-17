@@ -1,0 +1,9 @@
+# never commit these
+venv/
+news/
+__pycache__/
+*.pyc
+*.jsonl
+.state_*.json
+.vercel/
+node_modules/

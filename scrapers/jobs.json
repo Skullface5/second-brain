@@ -1,0 +1,6 @@
+{
+  "scrapers": [
+    {"name": "hf_trending", "module": "hf_trending.py", "args": []},
+    {"name": "venturebeat", "module": "rss_scraper.py", "args": ["venturebeat", "https://venturebeat.com/category/ai/feed/"]}
+  ]
+}

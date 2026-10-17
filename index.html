@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Second Brain</title>
+<meta name="description" content="Personal AI news and model tracker.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="glyphs" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="mk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+      <path d="M12 3a6 6 0 0 0-6 6c0 1.7.8 3 1.8 4.2.8 1 1.2 1.7 1.2 2.8v1h6v-1c0-1.1.4-1.8 1.2-2.8C17.2 12 18 10.7 18 9a6 6 0 0 0-6-6z"/>
+      <path d="M9.5 19.5h5M10.2 21.5h3.6M12 3v13"/>
+    </svg>
+    <span class="wt">Second&nbsp;Brain</span>
+  </div>
+  <div class="meta">
+    <span id="stat" class="stat">loading…</span>
+    <span id="gen" class="gen"></span>
+  </div>
+</header>
+
+<main>
+  <div class="controls">
+    <div class="search">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.3 15.3 21 21"/></svg>
+      <input id="q" type="search" placeholder="Search a topic…  (press / )" autocomplete="off" spellcheck="false">
+      <button id="clear" class="clr" title="Clear" aria-label="Clear">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="filters">
+      <div id="cats" class="seg"></div>
+      <div class="right">
+        <select id="src" class="sel" aria-label="Source"></select>
+        <select id="sort" class="sel" aria-label="Sort">
+          <option value="new">Newest</option>
+          <option value="old">Oldest</option>
+          <option value="az">A–Z</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div id="count" class="count"></div>
+  <section id="list" class="list"></section>
+  <div id="empty" class="empty" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.3 15.3 21 21"/></svg>
+    <p>Nothing matches that.</p>
+  </div>
+</main>
+
+<footer class="foot">
+  <span>auto-updated hourly</span>
+  <span class="dot">·</span>
+  <span id="foot-count"></span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
