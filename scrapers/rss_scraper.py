@@ -1,42 +1,64 @@
-
 #!/usr/bin/env python
-"""Generic RSS/Atom feed watcher. Watermark dedup by entry GUID/link.
-Usage: python rss_scraper.py <name> <feed_url>
+"""RSS/Atom feed watcher with content extraction. Watermark dedup by guid/link.
+Usage: rss_scraper.py <name> <feed_url>
+Stores title, link, summary, content (text from content:encoded / Atom content),
+published. Handles both RSS and Atom.
 """
-import json, os, sys
-from datetime import datetime, timezone
+import re, html, json, os, sys, time
+from datetime import datetime
 from xml.etree import ElementTree as ET
 from curl_cffi import requests
 
 ROOT = os.path.expanduser("~/second-brain")
 
 
-def fetch(feed_url):
-    r = requests.get(feed_url, impersonate="chrome", timeout=30)
-    r.raise_for_status()
-    return ET.fromstring(r.content)
+def get(url, tries=3):
+    last = None
+    for _ in range(tries):
+        try:
+            return requests.get(url, impersonate="chrome", timeout=40)
+        except Exception as e:
+            last = e
+            time.sleep(2)
+    raise last
+
+
+def to_text(h):
+    if not h:
+        return ""
+    h = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", h, flags=re.S | re.I)
+    h = re.sub(r"<br\s*/?>|</p>|</div>", "\n\n", h, flags=re.I)
+    h = re.sub(r"<[^>]+>", "", h)
+    t = html.unescape(h)
+    t = re.sub(r"[ \t]+", " ", t)
+    return re.sub(r"\n{3,}", "\n\n", t).strip()
 
 
 def entries_from(root):
     out = []
     for e in root.iter():
-        tag = e.tag.split("}")[-1]
-        if tag in ("item", "entry"):
-            d = {}
-            for c in e:
-                t = c.tag.split("}")[-1].lower()
-                if t == "link":
-                    d.setdefault("link", c.get("href") or c.get("url") or (c.text or "").strip())
-                elif t in ("guid", "id"):
-                    d.setdefault("guid", (c.text or "").strip())
-                else:
-                    d[t] = (c.text or "").strip()
-            out.append(d)
+        if e.tag.split("}")[-1] not in ("item", "entry"):
+            continue
+        d = {"content": ""}
+        for c in e:
+            t = c.tag.split("}")[-1].lower()
+            if t == "link":
+                d.setdefault("link", c.get("href") or c.get("url") or (c.text or "").strip())
+            elif t in ("guid", "id"):
+                d.setdefault("guid", (c.text or "").strip())
+            elif t in ("encoded", "content"):
+                if len(c.text or "") > len(d["content"]):
+                    d["content"] = c.text or ""
+            elif t == "description" and not d.get("description"):
+                d["description"] = c.text or ""
+            elif t in ("title", "pubdate", "published", "summary"):
+                d.setdefault(t, (c.text or "").strip())
+        out.append(d)
     return out
 
 
 def key_for(e, name):
-    return e.get("guid") or e.get("id") or e.get("link") or f"{name}|{e.get('title')}|{e.get('pubdate')}"
+    return e.get("guid") or e.get("id") or e.get("link") or f"{name}|{e.get('title')}"
 
 
 def main():
@@ -45,8 +67,7 @@ def main():
         sys.exit(2)
     name, feed_url = sys.argv[1], sys.argv[2]
 
-    root = fetch(feed_url)
-    entries = entries_from(root)
+    entries = entries_from(ET.fromstring(get(feed_url).content))
     state_path = os.path.join(ROOT, "scrapers", f".state_{name}.json")
     state = {"seen": []}
     if os.path.exists(state_path):
@@ -56,17 +77,18 @@ def main():
 
     new_rows = []
     for e in entries:
-        if not (e.get("title") or e.get("link")):
-            continue
         k = key_for(e, name)
-        if not k or k in seen:
+        if not k or k in seen or not (e.get("title") or e.get("link")):
             continue
         seen.add(k)
+        body = to_text(e.get("content")) or to_text(e.get("description"))
+        teaser = to_text(e.get("description")) or body
         new_rows.append({
-            "title": e.get("title", "")[:300],
+            "title": (e.get("title") or "")[:300],
             "link": e.get("link", ""),
-            "summary": e.get("description", e.get("summary", ""))[:600],
-            "published": e.get("pubdate", e.get("published", "")),
+            "summary": re.sub(r"\s+", " ", teaser)[:280],
+            "content": body[:6000],
+            "published": e.get("pubdate") or e.get("published", ""),
         })
 
     state["seen"] = sorted(seen)

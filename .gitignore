@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 *.jsonl
 .state_*.json
+.cache/
 .vercel/
 node_modules/
 .vercel

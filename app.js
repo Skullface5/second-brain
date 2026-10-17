@@ -1,6 +1,6 @@
 "use strict";
 const $ = s => document.querySelector(s);
-const S = { items: [], q: "", cat: "all", src: "all", sort: "new" };
+const S = { items: [], q: "", cat: "all", src: "all", sort: "new", open: new Set() };
 
 function esc(s){ return (s||"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function hl(s, terms){
@@ -19,6 +19,12 @@ function when(ts){
   if(s < 86400) return (s/3600|0)+"h ago";
   if(s < 604800) return (s/86400|0)+"d ago";
   return d.toISOString().slice(0,10);
+}
+function fmtN(n){
+  if(!n) return null;
+  if(n>=1e6) return (n/1e6).toFixed(1)+"M";
+  if(n>=1e3) return (n/1e3).toFixed(1)+"k";
+  return ""+n;
 }
 
 async function load(){
@@ -56,8 +62,7 @@ function buildControls(){
   order.forEach(k => c.appendChild(mk(k, k.charAt(0).toUpperCase()+k.slice(1), cats[k])));
 
   const srcs = [...new Set(S.items.map(i=>i.source).filter(Boolean))].sort();
-  const sel = $("#src");
-  sel.innerHTML = '<option value="all">All sources</option>' +
+  $("#src").innerHTML = '<option value="all">All sources</option>' +
     srcs.map(s=>'<option value="'+esc(s)+'">'+esc(s)+'</option>').join("");
 }
 
@@ -65,8 +70,14 @@ function match(it, terms){
   if(S.cat !== "all" && (it.category||"other") !== S.cat) return false;
   if(S.src !== "all" && it.source !== S.src) return false;
   if(!terms.length) return true;
-  const hay = ((it.title||"")+" "+(it.summary||"")+" "+(it.source||"")+" "+(it.category||"")).toLowerCase();
+  const hay = [it.title,it.summary,it.content,it.source,it.category,(it.tags||[]).join(" ")]
+    .join(" ").toLowerCase();
   return terms.every(t => hay.includes(t));
+}
+
+function bodyFor(it){
+  if(it.content && it.content.length > 40) return it.content;
+  return "";
 }
 
 function render(){
@@ -85,15 +96,43 @@ function render(){
   $("#empty").hidden = rows.length > 0;
   list.innerHTML = rows.slice(0,600).map(it => {
     const cat = it.category||"other";
-    return '<a class="row" href="'+esc(it.url||"#")+'" target="_blank" rel="noopener">'+
-      '<div class="rhead"><span class="badge '+esc(cat)+'">'+esc(cat)+'</span>'+
-      '<span class="rtitle">'+hl(it.title||"(untitled)", terms)+'</span></div>'+
+    const id = it.url||it.title;
+    const open = S.open.has(id);
+    const body = bodyFor(it);
+    const m = it.meta;
+    let stats = "";
+    if(m){
+      const parts = [];
+      if(m.downloads) parts.push('<span class="kv"><b>'+fmtN(m.downloads)+'</b> downloads</span>');
+      if(m.likes) parts.push('<span class="kv"><b>'+fmtN(m.likes)+'</b> likes</span>');
+      if(m.pipeline) parts.push('<span class="kv">'+esc(m.pipeline)+'</span>');
+      if(m.library) parts.push('<span class="kv">'+esc(m.library)+'</span>');
+      stats = '<div class="stats">'+parts.join("")+'</div>';
+      if(it.tags && it.tags.length)
+        stats += '<div class="tags">'+it.tags.map(t=>'<span class="tag">'+esc(t)+'</span>').join("")+'</div>';
+    }
+    return '<div class="row'+(open?" open":"")+'" data-id="'+esc(id)+'">'+
+      '<div class="rtop"><span class="badge '+esc(cat)+'">'+esc(cat)+'</span>'+
+      '<span class="rtitle">'+hl(it.title||"(untitled)", terms)+'</span>'+
+      '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m6 9 6 6 6-6"/></svg></div>'+
       (it.summary?'<div class="rsum">'+hl(it.summary, terms)+'</div>':'')+
+      stats+
+      (body?'<div class="body">'+hl(body, terms)+'</div>':'')+
       '<div class="rfoot"><span class="src">'+esc(it.source||"")+'</span><span>'+when(it.date)+'</span>'+
-      '<svg class="ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>'+
-      '</div></a>';
+      '<a class="open-link" href="'+esc(it.url||"#")+'" target="_blank" rel="noopener" title="Open source">'+
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>'+
+      'source</a></div></div>';
   }).join("");
 }
+
+$("#list").addEventListener("click", e => {
+  if(e.target.closest(".open-link")) return;
+  const row = e.target.closest(".row");
+  if(!row) return;
+  const id = row.dataset.id;
+  if(S.open.has(id)) S.open.delete(id); else S.open.add(id);
+  row.classList.toggle("open");
+});
 
 const q = $("#q");
 let tmr;
