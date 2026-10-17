@@ -11,6 +11,16 @@ ROOT = os.path.expanduser("~/second-brain")
 NEWS = os.path.join(ROOT, "news")
 OUT = os.path.join(ROOT, "data", "news.json")
 CACHE = os.path.join(ROOT, ".cache", "hf_meta.json")
+LLM_CACHE = os.path.join(ROOT, ".cache", "llm.json")
+
+
+def load_llm():
+    if os.path.exists(LLM_CACHE):
+        try:
+            return json.load(open(LLM_CACHE))
+        except Exception:
+            return {}
+    return {}
 
 
 def load_cache():
@@ -93,6 +103,7 @@ def build_news(name, row):
 
 def main():
     cache = load_cache()
+    llm = load_llm()
     # fetch budget per run: don't hammer HF or the net on slow links
     budget = [40]
     items, seen = [], set()
@@ -114,6 +125,12 @@ def main():
                 if key in seen:
                     continue
                 seen.add(key)
+                lg = llm.get(key)
+                if lg:
+                    if lg.get("summary"):
+                        it["summary"] = lg["summary"]
+                    if lg.get("tags"):
+                        it["tags"] = lg["tags"]
                 it["source"] = name
                 it["category"] = cat_of(name)
                 items.append(it)
