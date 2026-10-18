@@ -1,0 +1,66 @@
+{
+  "note": "Declarative source list. Adding a source = adding one entry here. The engine is scrapers/generic_source.py.",
+  "defaults": {
+    "category": "news",
+    "enabled": true
+  },
+  "sources": [
+    {
+      "name": "verge",
+      "kind": "rss",
+      "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+      "category": "news"
+    },
+    {
+      "name": "ars",
+      "kind": "rss",
+      "url": "https://arstechnica.com/ai/feed/",
+      "category": "news"
+    },
+    {
+      "name": "hf_trending",
+      "kind": "json",
+      "url": "https://huggingface.co/api/trending",
+      "lists": ["recentlyTrending", "trendingThisWeek", "trendingThisMonth"],
+      "id": "repoData.id",
+      "url_tmpl": "https://huggingface.co/{id}",
+      "category": "model"
+    },
+    {
+      "name": "hn",
+      "kind": "extract",
+      "mode": "index",
+      "index_url": "https://news.ycombinator.com/best",
+      "link_pattern": "href=\"(item\\?id=\\d+)\"",
+      "link_base": "https://news.ycombinator.com/",
+      "max_items": 12,
+      "category": "news"
+    },
+    {
+      "name": "mit-tech-review",
+      "kind": "rss",
+      "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
+      "category": "news"
+    },
+    {
+      "name": "venturebeat",
+      "kind": "rss",
+      "url": "https://venturebeat.com/category/ai/feed/",
+      "category": "news"
+    },
+    {
+      "name": "topic_agents",
+      "kind": "search",
+      "query": "new AI agent tool release",
+      "max": 8,
+      "category": "news"
+    },
+    {
+      "name": "topic_open_models",
+      "kind": "search",
+      "query": "open-weight LLM release",
+      "max": 8,
+      "category": "model"
+    }
+  ]
+}

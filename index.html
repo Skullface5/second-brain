@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Second Brain — AI signals, kept</title>
-<meta name="description" content="Personal AI news and model archive. Hourly scrape, structured, searchable.">
+<meta name="description" content="Personal AI news and model archive. Hourly scrape, structured, searchable, readable offline.">
+<meta name="theme-color" content="#131310">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon.svg">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -63,6 +67,20 @@
       </div>
     </div>
   </section>
+
+  <div id="strip" class="strip" hidden></div>
+
+  <div class="offlinebar">
+    <button id="offline-save" class="btn ghost" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      save for offline
+    </button>
+    <button id="offline-export" class="btn ghost" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h9l3 3h4v13H4z"/><path d="M4 10h16"/></svg>
+      export single file
+    </button>
+    <span id="offline-status" class="off-note">pages are stored on this device as you open them</span>
+  </div>
 
   <div id="count" class="count" role="status" aria-live="polite"></div>
 

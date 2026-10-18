@@ -1,0 +1,14 @@
+{
+  "name": "Second Brain — AI signals, kept",
+  "short_name": "Second Brain",
+  "description": "Personal AI news and model archive. Hourly scrape, structured, searchable, readable offline.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#131310",
+  "theme_color": "#131310",
+  "orientation": "any",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
