@@ -1,7 +1,5 @@
 {
   "scrapers": [
-    {"name": "hf_trending", "module": "hf_trending.py", "args": []},
-    {"name": "verge", "module": "rss_scraper.py", "args": ["verge", "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"]},
-    {"name": "ars", "module": "rss_scraper.py", "args": ["ars", "https://arstechnica.com/ai/feed/"]}
+    {"name": "generic", "module": "generic_source.py", "args": []}
   ]
 }
