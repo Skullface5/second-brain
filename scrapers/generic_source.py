@@ -207,7 +207,9 @@ def item_key(row, src):
 
 # ------------------------------------------------------------------------- kinds
 def kind_rss(src):
-    root = ET.fromstring(fetch(src["url"]).content)
+    """Feeds are a single small file on a metered, stall-prone link: give them a
+    longer window and one more try than the default before calling it a failure."""
+    root = ET.fromstring(fetch(src["url"], tries=4, timeout=90).content)
     out = []
     for e in root.iter():
         if e.tag.split("}")[-1] not in ("item", "entry"):
@@ -473,13 +475,16 @@ def main():
         cmd_list(sources)
         return 0
     only = set(x.strip() for x in a.only.split(",")) if a.only else None
-    fails = 0
+    fails, ran, failed_names = 0, 0, []
     for s in sources:
         if not s.get("enabled", True):
             continue
         if only and s["name"] not in only:
             continue
-        fails += 1 if run_one(s, dry=a.dry) else 0
+        ran += 1
+        if run_one(s, dry=a.dry):
+            fails += 1
+            failed_names.append(s["name"])
     if not a.dry:
         # reset the per-run Tavily counter for the next run
         try:
@@ -488,7 +493,19 @@ def main():
             json.dump(u, open(USAGE, "w"), indent=1)
         except Exception:
             pass
-    return 1 if fails else 0
+    # One flaky source (a feed that stalls mid-transfer on a metered link) must
+    # not paint the whole unit red — its own run record and the site's health
+    # strip already carry the failure. Exit non-zero only when NOTHING worked,
+    # which is a real outage worth alerting on.
+    if ran and fails == ran:
+        print("farm done: 0/%d scrapers OK (FAILED: %s)" % (ran, ", ".join(failed_names)))
+        return 1
+    if fails:
+        print("farm done: %d/%d scrapers OK (WARN failed: %s)"
+              % (ran - fails, ran, ", ".join(failed_names)))
+    else:
+        print("farm done: %d/%d scrapers OK" % (ran, ran))
+    return 0
 
 
 if __name__ == "__main__":
