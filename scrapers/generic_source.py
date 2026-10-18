@@ -225,19 +225,43 @@ def item_key(row, src):
 
 
 # ------------------------------------------------------------------- scheduling
+def every_seconds_of(src):
+    """A source's cadence in seconds.
+
+    The site's Sources panel takes a number + unit ("30s", "5m", "2h", "3d", "1w",
+    "1mo") and stores seconds; every_minutes is only the older equivalent.
+    """
+    try:
+        s = int(src.get("every_seconds") or 0)
+    except Exception:
+        s = 0
+    if s > 0:
+        return s
+    try:
+        return int(src.get("every_minutes") or 60) * 60
+    except Exception:
+        return 3600
+
+
+def human_every(secs):
+    for unit, n in (("mo", 2592000), ("w", 604800), ("d", 86400), ("h", 3600), ("m", 60)):
+        if secs and secs % n == 0 and secs >= n:
+            return "%d%s" % (secs // n, unit)
+    return "%ds" % secs
+
+
 def due_in(src, state):
     """Seconds until this source may run again, 0 when it is due.
 
-    A source's cadence is its own (`every_minutes`); the hourly timer stays the
-    heartbeat and simply skips what is not due yet. Default = every hour, which
-    is what the timer does anyway.
+    A source's cadence is its own (`every` in the panel); the timer is only the
+    heartbeat and skips whatever is not due yet.
     """
-    every = int(src.get("every_minutes") or 60)
+    every = every_seconds_of(src)
     runs = state.get("runs") or []
     last = runs[-1].get("at") if runs else None
     if not last:
         return 0
-    return max(0, int(every * 60 - (time.time() - last)))
+    return max(0, int(every - (time.time() - last)))
 
 
 def keep_row(row, src):
@@ -685,8 +709,9 @@ def run_one(src, dry=False):
     KNOWN[name] = seen
     wait = due_in(src, st)
     if wait > 0 and not dry:
-        print("scraper=%s deferred (not due yet, %d min left, every %s min)"
-              % (name, wait // 60 + 1, src.get("every_minutes") or 60))
+        print("scraper=%s deferred (not due yet, %s left, every %s)"
+              % (name, human_every(wait) if wait % 60 == 0 else "%dm" % (wait // 60 + 1),
+                 human_every(every_seconds_of(src))))
         return 0
     try:
         rows = KINDS[kind](src)
@@ -738,12 +763,12 @@ def cmd_list(sources):
         last = runs[-1] if runs else {}
         when = (time.strftime("%m-%d %H:%M", time.localtime(last["at"]))
                 if last.get("at") else "never")
-        every = int(s.get("every_minutes") or 60)
+        every = every_seconds_of(s)
         wait = due_in(s, st)
-        due = "due" if wait <= 0 else "%dm" % (wait // 60 + 1)
-        print("  %-18s %-8s %-9s every=%-5s %-6s last=%-12s new=%-4s ok=%-5s tracked=%s"
+        due = "due" if wait <= 0 else human_every(wait)
+        print("  %-18s %-8s %-9s every=%-6s %-6s last=%-12s new=%-4s ok=%-5s tracked=%s"
               % (s["name"], s["kind"], "enabled" if s.get("enabled", True) else "DISABLED",
-                 "%dm" % every, due, when, last.get("new", "-"), last.get("ok", "-"),
+                 human_every(every), due, when, last.get("new", "-"), last.get("ok", "-"),
                  len(st.get("seen", []))))
     u = {}
     try:

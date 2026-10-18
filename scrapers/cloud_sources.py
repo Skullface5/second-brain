@@ -16,7 +16,7 @@ must never stop because the control panel is unreachable.
 import json, os, urllib.error, urllib.request
 
 CRED = os.path.expanduser("~/.hermes/.supabase_second_brain.json")
-SCALARS = ("kind", "enabled", "every_minutes", "max_items", "category", "fulltext")
+SCALARS = ("kind", "enabled", "every_seconds", "every_minutes", "max_items", "category", "fulltext")
 
 
 def _creds():

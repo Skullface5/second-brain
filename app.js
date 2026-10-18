@@ -443,7 +443,39 @@ const SB = {
   loaded: false
 };
 
-const EVERY_LABEL = {15:"15 min",30:"30 min",60:"1 hr",180:"3 hrs",360:"6 hrs",720:"12 hrs",1440:"daily"};
+const EVERY_UNITS = {s: 1, m: 60, h: 3600, d: 86400, w: 604800, mo: 2592000};
+const BEAT_SECONDS = 300;          // farm heartbeat: nothing can fire faster than this
+
+function everySecondsOf(s){
+  if(!s) return 3600;
+  if(s.every_seconds) return parseInt(s.every_seconds, 10) || 3600;
+  return (parseInt(s.every_minutes, 10) || 60) * 60;
+}
+
+/* "30s" / "5m" / "2h" / "3d" / "1w" / "1mo" -> seconds. A bare number means
+   minutes, which is what every source used before this existed. */
+function parseEvery(txt){
+  const t = String(txt || "").trim().toLowerCase().replace(/\s+/g, "");
+  if(!t) return null;
+  const m = /^(\d+(?:\.\d+)?)(mo|m|h|d|w|s)?$/.exec(t);
+  if(!m) return null;
+  const n = parseFloat(m[1]);
+  const secs = Math.round(n * EVERY_UNITS[m[2] || "m"]);
+  return secs > 0 ? secs : null;
+}
+
+function formatEvery(secs){
+  if(!secs) return "";
+  for(const u of ["mo","w","d","h","m"]){
+    const n = EVERY_UNITS[u];
+    if(secs % n === 0 && secs >= n) return (secs / n) + u;
+  }
+  return secs + "s";
+}
+
+function everyNote(secs){
+  return secs && secs < BEAT_SECONDS ? " (fastest the farm checks is 5m)" : "";
+}
 
 function takeKeyFromUrl(){
   const m = /[#&]k=([A-Za-z0-9_\-]+)/.exec(location.hash || "");
@@ -536,9 +568,9 @@ function renderCfg(){
       '</div>' +
       '<div class="sp-line2">' +
         '<label class="sp-mini"><span>every</span>' +
-          '<select data-act="every">' + Object.keys(EVERY_LABEL).map(v =>
-            '<option value="' + v + '"' + (String(s.every_minutes) === v ? " selected" : "") + '>' +
-            EVERY_LABEL[v] + "</option>").join("") + '</select>' +
+          '<input class="sp-every" data-act="every" type="text" spellcheck="false"' +
+            ' inputmode="text" aria-label="how often to check ' + esc(s.name) + '"' +
+            ' value="' + esc(formatEvery(everySecondsOf(s))) + '">' +
         '</label>' +
         '<span class="sp-meta">' + esc(meta) + '</span>' +
         '<span class="sp-rowbtns">' +
@@ -560,8 +592,7 @@ function showForm(cfg){
   $("#f-name").value = v.name || "";
   $("#f-kind").value = v.kind || "rss";
   $("#f-category").value = v.category || "news";
-  $("#f-every").value = String(v.every_minutes || 60);
-  if(!$("#f-every").value) $("#f-every").value = "60";
+  $("#f-every").value = formatEvery(everySecondsOf(v));
   $("#f-fulltext").value = v.fulltext || "auto";
   $("#f-url").value = v.url || "";
   $("#f-site").value = v.site || "";
@@ -591,6 +622,8 @@ function applyKind(){
 
 function formPayload(){
   const k = $("#f-kind").value;
+  const secs = parseEvery($("#f-every").value);
+  if(secs === null){ $("#f-msg").textContent = "cadence: try 30s, 5m, 2h, 1d, 1w or 1mo"; return null; }
   const cfg = {};
   if(k === "rss" || k === "json" || k === "html") cfg.url = $("#f-url").value.trim();
   if(k === "site"){ cfg.site = $("#f-site").value.trim(); }
@@ -609,7 +642,7 @@ function formPayload(){
     name: $("#f-name").value.trim().toLowerCase().replace(/\s+/g, "_"),
     kind: k,
     enabled: true,
-    every_minutes: parseInt($("#f-every").value, 10) || 60,
+    every_seconds: secs,
     category: $("#f-category").value,
     fulltext: $("#f-fulltext").value,
     config: cfg
@@ -658,6 +691,7 @@ function wirePanel(){
     e.preventDefault();
     const msg = $("#f-msg");
     const p = formPayload();
+    if(!p) return;
     if(!p.name){ msg.textContent = "name is required"; return; }
     msg.textContent = "saving...";
     try{
@@ -691,13 +725,19 @@ function wirePanel(){
   });
 
   if(box) box.addEventListener("change", async (e) => {
-    const sel = e.target.closest("select[data-act='every']");
-    if(!sel) return;
+    const inp = e.target.closest("input[data-act='every']");
+    if(!inp) return;
     const name = e.target.closest(".sp-row").dataset.name;
     if(!SB.token){ spNote("read-only: open the keyed link once to unlock editing", true); return; }
+    const secs = parseEvery(inp.value);
+    if(secs === null){
+      spNote("could not read that — try 30s, 5m, 2h, 1d, 1w or 1mo", true);
+      inp.value = formatEvery(everySecondsOf(SB.cfg.filter(s => s.name === name)[0] || {}));
+      return;
+    }
     try{
-      await sbWrite("update", {name: name, every_minutes: parseInt(sel.value, 10)});
-      spNote("cadence saved");
+      await sbWrite("update", {name: name, every_seconds: secs});
+      spNote("checks every " + formatEvery(secs) + everyNote(secs));
       await loadCfg();
     }catch(err){ spNote(err.message, true); }
   });
