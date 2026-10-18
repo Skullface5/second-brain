@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""generic_source.py — ONE engine, five source kinds, driven by sources.json.
+"""generic_source.py — ONE engine, six source kinds, driven by sources.json + cloud.
 
 Kinds
   rss      feed_url -> title/link/summary/content/published
@@ -9,6 +9,13 @@ Kinds
            mode "index"  : index_url -> links (regex) -> Extract each item
            mode "urls"   : a fixed `urls` list -> Extract each
   search   Tavily Search for a saved query (topic tracking)
+  site     a WHOLE website: sitemap/index -> filtered links -> page text per item
+           (incremental — each run takes the next max_items pages it has not seen)
+
+Where the source list comes from
+  scrapers/sources.json is the seed and the offline fallback. Supabase
+  public.sources (edited from the site's Sources panel on the phone) is the control
+  panel and wins whenever it is reachable — see cloud_sources.py.
 
 Contract (same as every other farm scraper):
   * watermark dedup in .state_<name>.json — a second run prints new=0
@@ -21,10 +28,17 @@ Usage
   generic_source.py --list          # what is configured + last run stats
   generic_source.py --only hn,verge  # a subset
   generic_source.py --dry            # fetch + report, write nothing
+  generic_source.py --local          # ignore the cloud panel, use sources.json
 """
 import argparse, hashlib, html as htmllib, json, os, re, subprocess, sys, time
 from datetime import datetime, timezone
 from xml.etree import ElementTree as ET
+
+try:
+    from cloud_sources import fetch_sources          # same dir
+except ImportError:                                   # pragma: no cover
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from cloud_sources import fetch_sources
 
 ROOT = os.path.expanduser("~/second-brain")
 NEWS = os.path.join(ROOT, "news")
@@ -151,6 +165,11 @@ def tavily(kind, payload, timeout=120):
 
 
 # ------------------------------------------------------------------------ state
+# name -> the keys this source has already archived. Multi-URL kinds ("site") read
+# it to skip pages BEFORE spending a request on them; run_one fills it per source.
+KNOWN = {}
+
+
 def load_state(name):
     p = os.path.join(HERE, ".state_%s.json" % name)
     if os.path.exists(p):
@@ -205,6 +224,61 @@ def item_key(row, src):
     return "%s|%s" % (src.get("name"), row.get("title", ""))
 
 
+# ------------------------------------------------------------------- scheduling
+def due_in(src, state):
+    """Seconds until this source may run again, 0 when it is due.
+
+    A source's cadence is its own (`every_minutes`); the hourly timer stays the
+    heartbeat and simply skips what is not due yet. Default = every hour, which
+    is what the timer does anyway.
+    """
+    every = int(src.get("every_minutes") or 60)
+    runs = state.get("runs") or []
+    last = runs[-1].get("at") if runs else None
+    if not last:
+        return 0
+    return max(0, int(every * 60 - (time.time() - last)))
+
+
+def keep_row(row, src):
+    """Filters: drop rows a source says it does not want (kept out of the archive)."""
+    f = src.get("filters") or {}
+    title = str(row.get("title") or "")
+    url = str(row.get("url") or row.get("link") or "")
+    if f.get("min_title_len") and len(title) < int(f["min_title_len"]) and not url:
+        return False
+    for key, val in (("title_exclude", title), ("url_exclude", url)):
+        if f.get(key) and re.search(f[key], val, re.I):
+            return False
+    for key, val in (("title_include", title), ("url_include", url)):
+        if f.get(key) and not re.search(f[key], val, re.I):
+            return False
+    return True
+
+
+def paged_urls(src, base, pages):
+    """url + query params, then `pages` successive pages (page_param/page_size)."""
+    import urllib.parse as up
+    q = dict(src.get("query") or {})
+    out = []
+    param = src.get("page_param", "page")
+    size_param = src.get("page_size_param") or src.get("page_size")
+    size = src.get("page_size")
+    start = int(src.get("page_start", 1))
+    for i in range(start, start + max(1, int(pages or 1))):
+        params = dict(q)
+        if size is not None and size_param:
+            params[size_param] = size
+        if int(pages or 1) > 1 or i != start:
+            params[param] = i
+        parts = up.urlsplit(base)
+        existing = dict(up.parse_qsl(parts.query))
+        existing.update({k: str(v) for k, v in params.items()})
+        out.append(up.urlunsplit((parts.scheme, parts.netloc, parts.path,
+                                  up.urlencode(existing), parts.fragment)))
+    return out
+
+
 # ------------------------------------------------------------------------- kinds
 def kind_rss(src):
     """Feeds are a single small file on a metered, stall-prone link: give them a
@@ -244,17 +318,25 @@ def kind_rss(src):
 
 
 def kind_json(src):
-    data = fetch(src["url"]).json()
-    lists = src.get("lists")
-    if lists:
-        items = []
-        for path in lists:
-            got = dig(data, path, [])
-            if isinstance(got, list):
-                items += got
-    else:
-        got = dig(data, src.get("items_path", ""), data)
-        items = got if isinstance(got, list) else [got]
+    """One request by default; `pages` walks the listing (this is how a whole
+    site gets covered incrementally instead of page-by-page by hand)."""
+    items = []
+    for u in paged_urls(src, src["url"], src.get("pages", 1)):
+        try:
+            data = fetch(u).json()
+        except Exception:
+            if items:
+                break          # page 4 failing must not throw page 1 away
+            raise
+        lists = src.get("lists")
+        if lists:
+            for path in lists:
+                got = dig(data, path, [])
+                if isinstance(got, list):
+                    items += got
+        else:
+            got = dig(data, src.get("items_path", ""), data)
+            items += got if isinstance(got, list) else [got]
     out, seen = [], set()
     for it in items:
         if not isinstance(it, dict):
@@ -270,13 +352,15 @@ def kind_json(src):
             "id": key,
             "repo": key,
             "url": (src.get("url_tmpl", "") or "").format(id=key) or key,
-            "title": str(rid),
+            "title": squash(str(dig(it, src.get("title", "id"), key)), 300),
             "summary": "",
             "content": "",
             "first_seen": datetime.now(timezone.utc).isoformat(),
         }
         if src.get("bucket_path"):
             row["bucket"] = dig(it, src["bucket_path"], "")
+        if src.get("fields"):
+            row["meta"] = {k: dig(it, v) for k, v in src["fields"].items()}
         out.append(row)
     return out
 
@@ -393,19 +477,201 @@ def kind_search(src):
     return out
 
 
+# --------------------------------------------------------------- whole-site kind
+# "site": crawl a whole website instead of one page at a time. Sitemap first
+# (sitemap.xml / sitemap_index.xml / robots.txt Sitemap: lines), plain index-page
+# link harvesting as the fallback, then read each page. The state watermark means
+# a big site is covered incrementally - each run takes the next `max_items` pages
+# it has never seen, so a metered link never eats a whole site in one go.
+
+SKIP_EXT = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".css", ".js",
+            ".json", ".zip", ".gz", ".mp4", ".mp3", ".wav", ".woff", ".woff2",
+            ".ttf", ".eot", ".pdf", ".xml", ".rss", ".atom", ".webmanifest")
+
+
+def _host(u):
+    import urllib.parse as up
+    return up.urlsplit(u).netloc.lower()
+
+
+def sitemap_urls(src, cap=5000):
+    """Every page <loc> in the site's sitemaps, one index level deep."""
+    site = (src.get("site") or src.get("url") or "").rstrip("/")
+    queue, seen, pages = [], set(), []
+    if src.get("sitemap"):
+        queue.append(src["sitemap"])
+    if site:
+        queue += [site + "/sitemap.xml", site + "/sitemap_index.xml"]
+        try:                                     # robots.txt often names the real sitemap
+            for m in re.finditer(r"(?im)^\s*sitemap:\s*(\S+)", fetch(site + "/robots.txt", tries=1, timeout=30).text):
+                if m.group(1) not in queue:
+                    queue.append(m.group(1))
+        except Exception:
+            pass
+    fetches = 0
+    while queue and len(pages) < cap and fetches < int(src.get("sitemap_max") or 10):
+        u = queue.pop(0)
+        if u in seen:
+            continue
+        seen.add(u)
+        fetches += 1
+        try:
+            root = ET.fromstring(fetch(u, tries=1, timeout=60).content)
+        except Exception:
+            continue
+        kind_tag = root.tag.split("}")[-1]
+        locs = [(e.text or "").strip() for e in root.iter() if e.tag.split("}")[-1] == "loc"]
+        if kind_tag == "sitemapindex":
+            queue += [l for l in locs if l not in seen]
+        else:
+            pages += [l for l in locs if l]
+    return pages[:cap]
+
+
+def index_page_urls(src, cap=5000):
+    """No sitemap? Harvest links off the index page, optionally one level deeper."""
+    site = (src.get("site") or src.get("url") or "").rstrip("/")
+    roots = [src.get("index_url") or site]
+    depth = int(src.get("depth") or 1)
+    seen, out = set(), []
+    for level in range(max(1, depth)):
+        nxt = []
+        for u in roots:
+            if u in seen or len(out) >= cap:
+                continue
+            seen.add(u)
+            try:
+                blob = fetch(u, tries=1, timeout=45).text
+            except Exception:
+                continue
+            hrefs = re.findall(r'href=["\']([^"\'#]+)', blob, re.I)
+            for h in hrefs:
+                full = h if h.startswith("http") else site + ("" if h.startswith("/") else "/") + h
+                if full not in seen and full not in out:
+                    out.append(full)
+                    if level + 1 < depth and re.search(r"/(page|category|archive|topic|blog|index)s?/", full):
+                        nxt.append(full)
+        roots = nxt[:20]
+    return out[:cap]
+
+
+def site_urls(src):
+    """Candidate page URLs for a whole-site source, filtered by the source's rules."""
+    urls = sitemap_urls(src)
+    if not urls:
+        urls = index_page_urls(src)
+    site = (src.get("site") or src.get("url") or "").rstrip("/")
+    host = _host(site) if site else ""
+    keep, drop = src.get("link_filter"), src.get("link_exclude")
+    kp = re.compile(keep) if keep else None
+    dp = re.compile(drop) if drop else None
+    same = src.get("same_host", True)
+    out = []
+    for u in urls:
+        if not u.startswith("http"):
+            continue
+        low = u.lower().split("?")[0]
+        if low.endswith(SKIP_EXT):
+            continue
+        if host and same and _host(u) != host:
+            continue
+        if kp and not kp.search(u):
+            continue
+        if dp and dp.search(u):
+            continue
+        out.append(u)
+    if src.get("reverse") or src.get("order") == "newest":
+        out.reverse()          # sitemaps usually run oldest-first; news sites newest-first
+    return out
+
+
+def kind_site(src):
+    """Whole-site harvest: sitemap/index -> filtered links -> page text per item."""
+    known = KNOWN.get(src.get("name"), set())
+    urls = [u for u in site_urls(src) if u not in known]
+    limit = int(src.get("max_items") or 20)
+    print("  site: %d url(s) not archived yet, taking %d this run" % (len(urls), min(limit, len(urls))),
+          flush=True)
+    use_tavily = (src.get("extract") or "auto") != "local"
+    min_words = int(src.get("min_words") or 120)
+    out = []
+    for u in urls[:limit]:
+        text, status = "", "ok"
+        try:
+            blob = fetch(u, tries=2, timeout=60).text
+            title_m = re.search(r"(?is)<title[^>]*>(.*?)</title>", blob)
+            text = to_text(re.sub(r"(?is)<(script|style|nav|footer)[^>]*>.*?</\1>", " ", blob))
+            head = squash(htmllib.unescape(title_m.group(1)), 300) if title_m else ""
+        except Exception as e:
+            head, text, status = "", "", "fetch failed: %s" % str(e)[:80]
+        if len(text.split()) < min_words and use_tavily and budget_left(1) > 0:
+            body = tavily("extract", {"urls": [u]})
+            spend(1)
+            res = (body.get("results") or [{}])[0]
+            raw = (res.get("raw_content") or "").strip()
+            if raw:
+                lines = [l.strip() for l in raw.splitlines() if l.strip()]
+                head = head or (lines[0][:300] if lines else u)
+                text = raw
+                status = "ok"
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        out.append({
+            "title": head or (lines[0][:300] if lines else u),
+            "link": u,
+            "summary": squash(" ".join(lines[:3]), 280),
+            "content": text[:80000],
+            "word_count": len(text.split()),
+            "published": "",
+            "extract_status": status if text else "empty",
+        })
+    return out
+
+
 KINDS = {"rss": kind_rss, "json": kind_json, "html": kind_html,
-         "extract": kind_extract, "search": kind_search}
+         "extract": kind_extract, "search": kind_search, "site": kind_site}
 
 
 # --------------------------------------------------------------------------- main
-def load_sources():
+def load_sources(use_cloud=True):
+    """The effective source list.
+
+    scrapers/sources.json is the SEED (what a fresh box gets, and the fallback when
+    the link is down). Supabase public.sources is the CONTROL PANEL: once it has
+    rows it wins outright - so toggling a source off, changing its cadence or adding
+    one from the phone takes effect on the next run, and deleting a row really does
+    retire the scraper. Cloud unreachable -> local file, always.
+    """
     data = json.load(open(SOURCES))
     defaults = data.get("defaults", {})
-    out = []
+    local = {}
     for s in data["sources"]:
-        merged = dict(defaults)
-        merged.update(s)
-        out.append(merged)
+        m = dict(defaults)
+        m.update(s)
+        local[m["name"]] = m
+
+    cloud = fetch_sources() if use_cloud else {}
+    if cloud:
+        out = []
+        for name, cs in cloud.items():
+            merged = dict(defaults)
+            merged.update(local.get(name, {}))
+            merged.update(cs)                 # cloud wins for every field it carries
+            out.append(merged)
+        missing = [n for n in local if n not in cloud]
+        if missing:
+            print("sources: %d local-only source(s) not in the cloud panel: %s"
+                  % (len(missing), ", ".join(sorted(missing))), flush=True)
+        return out
+
+    if use_cloud:                             # say it out loud: the panel did not load
+        print("sources: cloud panel unreachable — using scrapers/sources.json "
+              "(edits made on the site will not apply until this reads again)", flush=True)
+
+    out = []
+    for name, m in local.items():
+        if m.get("enabled", True) is False:
+            continue
+        out.append(m)
     return out
 
 
@@ -416,6 +682,12 @@ def run_one(src, dry=False):
         return 1
     st = load_state(name)
     seen = set(str(x) for x in st.get("seen", []))
+    KNOWN[name] = seen
+    wait = due_in(src, st)
+    if wait > 0 and not dry:
+        print("scraper=%s deferred (not due yet, %d min left, every %s min)"
+              % (name, wait // 60 + 1, src.get("every_minutes") or 60))
+        return 0
     try:
         rows = KINDS[kind](src)
     except Exception as e:
@@ -424,24 +696,38 @@ def run_one(src, dry=False):
                                           "error": str(e)[:200], "fetched": 0})
         save_state(name, st)
         return 2
-    new_rows = []
+    cap = int(src.get("max_items") or 0)
+    new_rows, filtered = [], 0
     for row in rows:
         k = item_key(row, src)
         if not k or k in seen:
             continue
         seen.add(k)
+        if not keep_row(row, src):
+            filtered += 1
+            continue
         row.setdefault("source", name)
         row.setdefault("category", src.get("category", "news"))
         new_rows.append(row)
+    capped = 0
+    if cap and len(new_rows) > cap:
+        capped = len(new_rows) - cap
+        new_rows = new_rows[:cap]
     if not dry:
         append_rows(name, new_rows)
     st["seen"] = sorted(seen)
     st.setdefault("runs", []).append({"at": time.time(), "new": len(new_rows), "ok": True,
-                                      "fetched": len(rows)})
+                                      "fetched": len(rows),
+                                      "filtered": filtered, "capped": capped})
     if not dry:
         save_state(name, st)
-    print("scraper=%s fetched=%d new=%d tracked=%d%s"
-          % (name, len(rows), len(new_rows), len(seen), " (dry)" if dry else ""))
+    extra = ""
+    if filtered:
+        extra += " filtered=%d" % filtered
+    if capped:
+        extra += " capped=%d (next run takes the rest)" % capped
+    print("scraper=%s fetched=%d new=%d tracked=%d%s%s"
+          % (name, len(rows), len(new_rows), len(seen), extra, " (dry)" if dry else ""))
     return 0
 
 
@@ -452,9 +738,13 @@ def cmd_list(sources):
         last = runs[-1] if runs else {}
         when = (time.strftime("%m-%d %H:%M", time.localtime(last["at"]))
                 if last.get("at") else "never")
-        print("  %-16s %-8s %-9s last=%-12s new=%-4s ok=%-5s tracked=%s"
+        every = int(s.get("every_minutes") or 60)
+        wait = due_in(s, st)
+        due = "due" if wait <= 0 else "%dm" % (wait // 60 + 1)
+        print("  %-18s %-8s %-9s every=%-5s %-6s last=%-12s new=%-4s ok=%-5s tracked=%s"
               % (s["name"], s["kind"], "enabled" if s.get("enabled", True) else "DISABLED",
-                 when, last.get("new", "-"), last.get("ok", "-"), len(st.get("seen", []))))
+                 "%dm" % every, due, when, last.get("new", "-"), last.get("ok", "-"),
+                 len(st.get("seen", []))))
     u = {}
     try:
         u = json.load(open(USAGE))
@@ -468,9 +758,10 @@ def main():
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--only")
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--local", action="store_true", help="ignore the cloud source panel")
     a = ap.parse_args()
 
-    sources = load_sources()
+    sources = load_sources(use_cloud=not a.local)
     if a.list:
         cmd_list(sources)
         return 0

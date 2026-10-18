@@ -204,8 +204,21 @@ def main():
         h["stale"] = bool(h.pop("dry")) and farm_producing
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
+
+    # ---- sources panel: the EFFECTIVE config, so the site can list every scraper
+    # (and its cadence / on-off state) even with no network and no Supabase.
+    sources_cfg = []
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "scrapers"))
+        from generic_source import load_sources
+        for s in load_sources():
+            sources_cfg.append({k: v for k, v in s.items() if not str(k).startswith("_")})
+    except Exception as e:
+        print("publish: source config unavailable (%s)" % str(e)[:90])
+
     payload = {"generated": datetime.now(timezone.utc).isoformat(), "count": len(items),
-               "full_count": with_full, "sources": health, "items": items}
+               "full_count": with_full, "sources": health, "sources_cfg": sources_cfg,
+               "items": items}
     with open(OUT, "w") as f:
         json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
 

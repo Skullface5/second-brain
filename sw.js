@@ -8,7 +8,7 @@
      full/*.json -> cache first (a page's text never changes once captured)
      static      -> cache first, refresh in the background
 */
-const SHELL = "sb-shell-v1";
+const SHELL = "sb-shell-v2";   // v2: sources panel — bump to flush phones still on the old shell
 const FULL = "sb-full-v1";
 
 const SHELL_FILES = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.webmanifest"];

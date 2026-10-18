@@ -427,4 +427,284 @@ if("serviceWorker" in navigator){
 }
 wireOffline();
 
-load();
+/* ---------- sources panel (the control panel for the farm) ----------
+   Supabase public.sources is the live list: reads are public, writes go through
+   sb_source_write() with a device key. The key arrives once in the URL fragment
+   (#k=...), is kept in localStorage and never leaves this origin. Without it the
+   panel still lists every source (from data/news.json) but cannot change anything. */
+
+const SB = {
+  url: "https://lmvnksslmiuycwxjahsd.supabase.co",
+  anon: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxtdm5rc3NsbWl1eWN3eGphaHNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIyNzc3MzYsImV4cCI6MjEwNzg1MzczNn0.Spt7h4IrSHOU3H2cW6bKQ2S9FhqcPBHwpKdr5owe04c",
+  token: localStorage.getItem("sb-token") || "",
+  rows: [],            // cloud rows, live
+  cfg: [],             // flattened view of the live/fallback config
+  online: false,
+  loaded: false
+};
+
+const EVERY_LABEL = {15:"15 min",30:"30 min",60:"1 hr",180:"3 hrs",360:"6 hrs",720:"12 hrs",1440:"daily"};
+
+function takeKeyFromUrl(){
+  const m = /[#&]k=([A-Za-z0-9_\-]+)/.exec(location.hash || "");
+  if(!m) return false;
+  SB.token = m[1];
+  try{ localStorage.setItem("sb-token", SB.token); }catch(_){}
+  try{ history.replaceState(null, "", location.pathname + location.search); }catch(_){}
+  return true;
+}
+
+function spNote(msg, isError){
+  const el = $("#sp-note");
+  if(!el) return;
+  el.textContent = msg || "";
+  el.classList.toggle("bad", !!isError);
+}
+
+async function sbGet(path){
+  const r = await fetch(SB.url + "/rest/v1/" + path, {
+    headers: {apikey: SB.anon, Authorization: "Bearer " + SB.anon, Accept: "application/json"}});
+  if(!r.ok) throw new Error("HTTP " + r.status);
+  return await r.json();
+}
+
+async function sbWrite(action, payload){
+  if(!SB.token) throw new Error("read-only on this device");
+  const r = await fetch(SB.url + "/rest/v1/rpc/sb_source_write", {
+    method: "POST",
+    headers: {apikey: SB.anon, Authorization: "Bearer " + SB.anon, "Content-Type": "application/json"},
+    body: JSON.stringify({p_token: SB.token, p_action: action, p: payload})
+  });
+  let j = {};
+  try{ j = await r.json(); }catch(_){}
+  if(!r.ok) throw new Error((j && j.message) || ("HTTP " + r.status));
+  if(j && j.ok === false) throw new Error(j.error || "refused");
+  return j;
+}
+
+function cfgFromRow(row){
+  const c = Object.assign({}, row.config || {});
+  c.name = row.name;
+  c.kind = row.kind;
+  c.enabled = row.enabled !== false;
+  c.every_minutes = row.every_minutes || 60;
+  c.max_items = row.max_items;
+  c.category = row.category || "news";
+  c.fulltext = row.fulltext || "auto";
+  c.cloud = true;
+  return c;
+}
+
+async function loadCfg(){
+  try{
+    const rows = await sbGet("sources?select=*&order=name");
+    SB.rows = rows || [];
+    SB.cfg = SB.rows.map(cfgFromRow);
+    SB.online = true;
+  }catch(_){
+    SB.online = false;
+    SB.cfg = (S.meta && S.meta.sources_cfg) || [];
+  }
+  SB.loaded = true;
+  renderCfg();
+}
+
+function healthOf(name){
+  return ((S.meta && S.meta.sources) || {})[name] || {};
+}
+
+function renderCfg(){
+  const box = $("#sp-rows");
+  if(!box) return;
+  const rows = SB.cfg.slice().sort((a,b) => String(a.name).localeCompare(String(b.name)));
+  if(!rows.length){ box.innerHTML = '<p class="sp-empty">No sources yet.</p>'; return; }
+  box.innerHTML = rows.map(s => {
+    const h = healthOf(s.name);
+    const cls = h.ok === false ? "bad" : (h.stale || h.last_new === 0 ? "warn" : "good");
+    const bits = [];
+    if(h.tracked) bits.push(h.tracked + " archived");
+    if(h.last_new !== undefined) bits.push("+" + (h.last_new || 0) + " last run");
+    if(h.error) bits.push(squashErr(h.error));
+    const meta = bits.join(" · ") || "not run yet";
+    return '<div class="sp-row' + (s.enabled === false ? " off" : "") + '" data-name="' + esc(s.name) + '">' +
+      '<div class="sp-line1">' +
+        '<span class="dot ' + cls + '"><i></i></span>' +
+        '<span class="sp-name">' + esc(s.name) + '</span>' +
+        '<span class="sp-kind">' + esc(s.kind || "") + '</span>' +
+        '<button class="sp-switch" type="button" role="switch" aria-checked="' + (s.enabled !== false) + '"' +
+          ' data-act="toggle" title="turn this source on or off">' + (s.enabled !== false ? "on" : "off") + '</button>' +
+      '</div>' +
+      '<div class="sp-line2">' +
+        '<label class="sp-mini"><span>every</span>' +
+          '<select data-act="every">' + Object.keys(EVERY_LABEL).map(v =>
+            '<option value="' + v + '"' + (String(s.every_minutes) === v ? " selected" : "") + '>' +
+            EVERY_LABEL[v] + "</option>").join("") + '</select>' +
+        '</label>' +
+        '<span class="sp-meta">' + esc(meta) + '</span>' +
+        '<span class="sp-rowbtns">' +
+          '<button class="sp-mini-btn" type="button" data-act="edit">edit</button>' +
+          '<button class="sp-mini-btn danger" type="button" data-act="delete">remove</button>' +
+        '</span>' +
+      '</div>' +
+    "</div>";
+  }).join("");
+}
+
+function squashErr(e){ return String(e).replace(/\s+/g," ").slice(0, 70); }
+
+/* ---- form ---- */
+function showForm(cfg){
+  const f = $("#sp-form");
+  if(!f) return;
+  const v = cfg || {};
+  $("#f-name").value = v.name || "";
+  $("#f-kind").value = v.kind || "rss";
+  $("#f-category").value = v.category || "news";
+  $("#f-every").value = String(v.every_minutes || 60);
+  if(!$("#f-every").value) $("#f-every").value = "60";
+  $("#f-fulltext").value = v.fulltext || "auto";
+  $("#f-url").value = v.url || "";
+  $("#f-site").value = v.site || "";
+  $("#f-link_filter").value = v.link_filter || "";
+  $("#f-max_items").value = v.max_items || "";
+  $("#f-index_url").value = v.index_url || "";
+  $("#f-link_pattern").value = v.link_pattern || "";
+  $("#f-query").value = v.query || "";
+  $("#f-lists").value = (v.lists || []).join(", ");
+  $("#f-item_xpath").value = v.item_xpath || "";
+  $("#f-name").dataset.editing = v.name || "";
+  $("#f-msg").textContent = "";
+  f.hidden = false;
+  applyKind();
+  $("#f-name").focus();
+}
+
+function applyKind(){
+  const k = $("#f-kind").value;
+  document.querySelectorAll("#sp-form .sp-f").forEach(el => {
+    const ks = (el.dataset.k || "").split(",").filter(Boolean);
+    el.hidden = ks.length ? ks.indexOf(k) === -1 : false;
+  });
+  const urlLabel = $("#l-url");
+  if(urlLabel) urlLabel.textContent = k === "json" ? "api url" : (k === "html" ? "page url" : "feed url");
+}
+
+function formPayload(){
+  const k = $("#f-kind").value;
+  const cfg = {};
+  if(k === "rss" || k === "json" || k === "html") cfg.url = $("#f-url").value.trim();
+  if(k === "site"){ cfg.site = $("#f-site").value.trim(); }
+  if(k === "site" && $("#f-link_filter").value.trim()) cfg.link_filter = $("#f-link_filter").value.trim();
+  if(k === "extract"){
+    cfg.index_url = $("#f-index_url").value.trim();
+    cfg.mode = "index";
+    if($("#f-link_pattern").value.trim()) cfg.link_pattern = $("#f-link_pattern").value.trim();
+  }
+  if(k === "search") cfg.query = $("#f-query").value.trim();
+  if(k === "json" && $("#f-lists").value.trim()){
+    cfg.lists = $("#f-lists").value.split(",").map(x => x.trim()).filter(Boolean);
+  }
+  if(k === "html" && $("#f-item_xpath").value.trim()) cfg.item_xpath = $("#f-item_xpath").value.trim();
+  const p = {
+    name: $("#f-name").value.trim().toLowerCase().replace(/\s+/g, "_"),
+    kind: k,
+    enabled: true,
+    every_minutes: parseInt($("#f-every").value, 10) || 60,
+    category: $("#f-category").value,
+    fulltext: $("#f-fulltext").value,
+    config: cfg
+  };
+  const mx = parseInt($("#f-max_items").value, 10);
+  if(mx) p.max_items = mx;
+  return p;
+}
+
+function wirePanel(){
+  const freshKey = takeKeyFromUrl();      // first tap on the keyed link unlocks editing
+
+  const open = $("#sp-open");
+  const panel = $("#srcpanel");
+  const setPanel = (show) => {
+    panel.hidden = !show;
+    if(open) open.setAttribute("aria-expanded", String(show));
+  };
+  if(open && panel){
+    open.onclick = () => {
+      const show = panel.hidden;
+      setPanel(show);
+      if(show){ loadCfg(); panel.scrollIntoView({block: "nearest", behavior: "smooth"}); }
+    };
+  }
+  if(freshKey){                            // a keyed link lands with the panel already open
+    setPanel(true);
+    setTimeout(loadCfg, 0);
+  }
+  const hide = $("#sp-hide");
+  if(hide) hide.onclick = () => setPanel(false);
+
+  const add = $("#sp-add");
+  if(add) add.onclick = () => {
+    if(!SB.token){ spNote("read-only: open the keyed link once to unlock editing", true); return; }
+    const f = $("#sp-form");
+    if(f.hidden) showForm(null); else f.hidden = true;
+  };
+  const cancel = $("#f-cancel");
+  if(cancel) cancel.onclick = () => { $("#sp-form").hidden = true; };
+  const kind = $("#f-kind");
+  if(kind) kind.onchange = applyKind;
+
+  const form = $("#sp-form");
+  if(form) form.onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = $("#f-msg");
+    const p = formPayload();
+    if(!p.name){ msg.textContent = "name is required"; return; }
+    msg.textContent = "saving...";
+    try{
+      await sbWrite("add", p);
+      msg.textContent = "saved — runs on the next farm pass";
+      form.hidden = true;
+      await loadCfg();
+    }catch(err){ msg.textContent = err.message; }
+  };
+
+  const box = $("#sp-rows");
+  if(box) box.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act]");
+    const row = e.target.closest(".sp-row");
+    if(!row) return;
+    const name = row.dataset.name;
+    const cur = SB.cfg.filter(s => s.name === name)[0] || {};
+    const act = btn && btn.dataset.act;
+    if(act === "edit"){ showForm(cur); return; }
+    if(!SB.token){ spNote("read-only: open the keyed link once to unlock editing", true); return; }
+    try{
+      if(act === "toggle"){
+        await sbWrite("update", {name: name, enabled: !(cur.enabled !== false)});
+      }else if(act === "delete"){
+        if(!confirm("Remove " + name + " from the farm?")) return;
+        await sbWrite("delete", {name: name});
+      }
+      spNote("");
+      await loadCfg();
+    }catch(err){ spNote(err.message, true); }
+  });
+
+  if(box) box.addEventListener("change", async (e) => {
+    const sel = e.target.closest("select[data-act='every']");
+    if(!sel) return;
+    const name = e.target.closest(".sp-row").dataset.name;
+    if(!SB.token){ spNote("read-only: open the keyed link once to unlock editing", true); return; }
+    try{
+      await sbWrite("update", {name: name, every_minutes: parseInt(sel.value, 10)});
+      spNote("cadence saved");
+      await loadCfg();
+    }catch(err){ spNote(err.message, true); }
+  });
+
+  if(!SB.token) spNote("read-only on this device");
+}
+
+wirePanel();
+
+load().then(() => { if(SB.loaded) renderCfg(); });

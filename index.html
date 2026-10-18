@@ -79,8 +79,98 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h9l3 3h4v13H4z"/><path d="M4 10h16"/></svg>
       export single file
     </button>
+    <button id="sp-open" class="btn ghost" type="button" aria-expanded="false" aria-controls="srcpanel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8.5" cy="6" r="2"/><circle cx="15.5" cy="12" r="2"/><circle cx="6.5" cy="18" r="2"/></svg>
+      sources
+    </button>
     <span id="offline-status" class="off-note">pages are stored on this device as you open them</span>
   </div>
+
+  <section id="srcpanel" class="srcpanel" hidden aria-label="Scraper sources">
+    <div class="sp-head">
+      <h2 class="sp-title">sources</h2>
+      <span id="sp-note" class="sp-note"></span>
+      <span class="sp-actions">
+        <button id="sp-add" class="btn ghost" type="button">add source</button>
+        <button id="sp-hide" class="btn ghost" type="button">hide</button>
+      </span>
+    </div>
+
+    <form id="sp-form" class="sp-form" hidden autocomplete="off">
+      <label class="sp-f"><span>name</span>
+        <input id="f-name" type="text" placeholder="my-blog" spellcheck="false">
+      </label>
+      <label class="sp-f"><span>kind</span>
+        <select id="f-kind">
+          <option value="rss">rss feed</option>
+          <option value="json">json api</option>
+          <option value="site">whole site</option>
+          <option value="extract">pages (tavily)</option>
+          <option value="search">saved search</option>
+          <option value="html">html selectors</option>
+        </select>
+      </label>
+      <label class="sp-f"><span>category</span>
+        <select id="f-category">
+          <option value="news">news</option>
+          <option value="model">model</option>
+          <option value="other">other</option>
+        </select>
+      </label>
+      <label class="sp-f"><span>check every</span>
+        <select id="f-every">
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">1 hour</option>
+          <option value="180">3 hours</option>
+          <option value="360">6 hours</option>
+          <option value="720">12 hours</option>
+          <option value="1440">daily</option>
+        </select>
+      </label>
+      <label class="sp-f"><span>full text</span>
+        <select id="f-fulltext">
+          <option value="auto">auto</option>
+          <option value="always">always</option>
+          <option value="never">never</option>
+        </select>
+      </label>
+      <label class="sp-f" data-k="rss,json,html"><span id="l-url">feed url</span>
+        <input id="f-url" type="url" placeholder="https://example.com/feed.xml" spellcheck="false">
+      </label>
+      <label class="sp-f" data-k="site"><span>site url</span>
+        <input id="f-site" type="url" placeholder="https://example.com" spellcheck="false">
+      </label>
+      <label class="sp-f" data-k="site"><span>only urls matching</span>
+        <input id="f-link_filter" type="text" placeholder="/blog/" spellcheck="false">
+      </label>
+      <label class="sp-f" data-k="site,extract,json"><span>pages per run</span>
+        <input id="f-max_items" type="number" min="1" max="200" placeholder="20">
+      </label>
+      <label class="sp-f" data-k="extract"><span>index page url</span>
+        <input id="f-index_url" type="url" placeholder="https://example.com/news" spellcheck="false">
+      </label>
+      <label class="sp-f" data-k="extract"><span>link pattern</span>
+        <input id="f-link_pattern" type="text" placeholder="href=&quot;(/news/[^&quot;]+)&quot;" spellcheck="false">
+      </label>
+      <label class="sp-f" data-k="search"><span>search query</span>
+        <input id="f-query" type="text" placeholder="new open-weight model release">
+      </label>
+      <label class="sp-f" data-k="json"><span>list paths</span>
+        <input id="f-lists" type="text" placeholder="trendingThisWeek" spellcheck="false">
+      </label>
+      <label class="sp-f" data-k="html"><span>item xpath</span>
+        <input id="f-item_xpath" type="text" placeholder="//article" spellcheck="false">
+      </label>
+      <div class="sp-save">
+        <button id="f-save" class="btn" type="submit">save source</button>
+        <button id="f-cancel" class="btn ghost" type="button">cancel</button>
+        <span id="f-msg" class="sp-msg"></span>
+      </div>
+    </form>
+
+    <div id="sp-rows" class="sp-rows"></div>
+  </section>
 
   <div id="count" class="count" role="status" aria-live="polite"></div>
 

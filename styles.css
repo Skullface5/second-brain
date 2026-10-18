@@ -239,3 +239,60 @@ body.is-offline .off-note{color:var(--brass)}
   .btn.ghost{flex:1 1 auto;justify-content:center}
   .off-note{flex:1 1 100%}
 }
+
+/* ---------- sources panel: the farm's control panel ---------- */
+.srcpanel{border:1px solid var(--rule);border-radius:3px;background:var(--bg-raise);
+  margin:14px 0 18px;padding:14px}
+.sp-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sp-title{font-family:var(--display);font-weight:600;font-size:17px;margin:0;color:#eceae2}
+.sp-note{flex:1 1 auto;font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--ink-faint)}
+.sp-note.bad{color:var(--rust)}
+.sp-actions{display:flex;gap:8px}
+.sp-rows{margin-top:14px;border-top:1px solid var(--rule-soft)}
+.sp-row{padding:12px 0;border-bottom:1px solid var(--rule-soft)}
+.sp-row.off .sp-name,.sp-row.off .sp-kind{color:var(--ink-faint)}
+.sp-line1{display:flex;align-items:center;gap:10px}
+.sp-name{font-family:var(--mono);font-size:12.5px;letter-spacing:.03em;color:var(--ink)}
+.sp-kind{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-faint);border:1px solid var(--rule);border-radius:2px;padding:2px 6px}
+.sp-switch{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;background:none;border:1px solid var(--rule);border-radius:3px;
+  color:var(--ink-mute);padding:8px 12px;min-height:40px;min-width:66px;cursor:pointer;transition:.13s}
+.sp-switch[aria-checked="true"]{color:var(--jade);border-color:#2c3a2e}
+.sp-switch[aria-checked="false"]{color:var(--rust);border-color:#3a2a20}
+.sp-switch:hover{border-color:var(--brass-dim)}
+.sp-line2{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px}
+.sp-mini{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:9.5px;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--ink-faint)}
+.sp-mini select{appearance:none;background:var(--bg-lift);border:1px solid var(--rule);border-radius:3px;
+  color:var(--ink-soft);font-family:var(--mono);font-size:11px;letter-spacing:.03em;
+  padding:9px 24px 9px 10px;min-height:40px;cursor:pointer;outline:0;
+  background-image:linear-gradient(45deg,transparent 50%,var(--ink-faint) 50%),linear-gradient(135deg,var(--ink-faint) 50%,transparent 50%);
+  background-position:calc(100% - 14px) 50%,calc(100% - 9px) 50%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+.sp-mini select:focus-visible{border-color:var(--brass-dim)}
+.sp-meta{flex:1 1 auto;min-width:0;font-family:var(--mono);font-size:10px;color:var(--ink-faint);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-rowbtns{display:flex;gap:6px;margin-left:auto}
+.sp-mini-btn{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  background:none;border:1px solid var(--rule);border-radius:3px;color:var(--ink-mute);
+  padding:8px 10px;min-height:38px;cursor:pointer;transition:.13s}
+.sp-mini-btn:hover{color:var(--ink);border-color:var(--brass-dim)}
+.sp-mini-btn.danger:hover{color:var(--rust);border-color:#3a2a20}
+.sp-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px;
+  margin:14px 0 4px;padding:14px;border:1px solid var(--rule-soft);border-radius:3px;background:var(--bg-lift)}
+.sp-f{display:flex;flex-direction:column;gap:6px}
+.sp-f span{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-faint)}
+.sp-f input,.sp-f select{width:100%;background:var(--bg-raise);border:1px solid var(--rule);border-radius:3px;
+  color:var(--ink);font-family:var(--body);font-size:14px;padding:10px 11px;min-height:44px;outline:0}
+.sp-f input:focus,.sp-f select:focus{border-color:var(--brass-dim);background:var(--bg-lift)}
+.sp-save{grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sp-msg{font-family:var(--mono);font-size:10px;letter-spacing:.04em;color:var(--brass-dim)}
+.sp-empty{font-family:var(--mono);font-size:11px;color:var(--ink-faint);padding:14px 0}
+
+@media (max-width:640px){
+  .sp-form{grid-template-columns:1fr}
+  .sp-line2{gap:8px}
+  .sp-rowbtns{margin-left:0}
+  .sp-switch{min-width:60px}
+}

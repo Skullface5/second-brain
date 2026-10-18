@@ -86,14 +86,35 @@ def extract(urls):
     return out
 
 
+def load_modes():
+    """Per-source full-text preference: never | auto | always.
+
+    Read off the EFFECTIVE source list, so a `full text` choice made in the site's
+    Sources panel (Supabase) counts, not just the seed file.
+    """
+    sys.path.insert(0, os.path.join(ROOT, "scrapers"))
+    try:
+        from generic_source import load_sources
+        return {s["name"]: (s.get("fulltext") or "auto") for s in load_sources()}
+    except Exception:
+        try:
+            data = json.load(open(os.path.join(ROOT, "scrapers", "sources.json")))
+            return {s["name"]: (s.get("fulltext") or "auto") for s in data.get("sources", [])}
+        except Exception:
+            return {}
+
+
 def candidates(only=None):
     """Every item with a URL that has no full text yet, newest first, priority first."""
     cache = load_json(CACHE, {})
+    modes = load_modes()
     rows = []
     for path in sorted(glob.glob(os.path.join(NEWS, "*.jsonl"))):
         name = os.path.basename(path).rsplit("_", 1)[0]
         if only and name not in only:
             continue
+        if modes.get(name) == "never":
+            continue          # metadata-only source (an API listing): no page to hold
         try:
             day = int(os.path.basename(path).rsplit("_", 1)[1].split(".")[0])
         except Exception:
@@ -109,7 +130,12 @@ def candidates(only=None):
             url = (row.get("link") or row.get("url") or "").strip()
             if not url.startswith("http") or url in cache:
                 continue
-            prio = PRIORITY.index(name) if name in PRIORITY else len(PRIORITY)
+            if name in PRIORITY:
+                prio = PRIORITY.index(name)
+            elif modes.get(name) == "always":
+                prio = -1
+            else:
+                prio = len(PRIORITY)
             rows.append((prio, -day, name, url))
     rows.sort(key=lambda r: (r[0], r[1], r[3]))
     seen, out = set(), []
