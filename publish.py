@@ -194,9 +194,14 @@ def main():
             "last_new": last.get("new", 0),
             "ok": bool(last.get("ok", False)),
             "error": last.get("error", ""),
-            # three dead runs in a row = a source that quietly stopped working
-            "stale": bool(recent) and all(r.get("new", 0) == 0 for r in recent),
+            # three runs with nothing new WHILE the rest of the farm is finding
+            # things = a source that quietly stopped working. If the whole farm
+            # is quiet (a genuinely uneventful hour) nothing is flagged.
+            "dry": bool(recent) and all(r.get("new", 0) == 0 for r in recent),
         }
+    farm_producing = any(h["last_new"] for h in health.values())
+    for h in health.values():
+        h["stale"] = bool(h.pop("dry")) and farm_producing
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     payload = {"generated": datetime.now(timezone.utc).isoformat(), "count": len(items),
